@@ -13,12 +13,13 @@ module.exports = function (env) {
     // ui/svg.js
     "insert",
     "setAttrs",
+    "setAttr",
     "setTransform",
     "arc",
+    "use",
     "circle",
     "gradient",
     "class",
-    // "color",
     "stopColor",
     "stopOpacity",
     "offset",
@@ -26,9 +27,6 @@ module.exports = function (env) {
     "stroke",
     "strokeWidth",
     "fill",
-    // "translate",
-    // "rotate",
-    // "scale"
   ]
 
   var config = {
