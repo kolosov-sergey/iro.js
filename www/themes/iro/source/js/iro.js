@@ -1,5 +1,5 @@
 /*!
- * iro.js v3.2.0
+ * iro.js v3.3.0
  * 2016-2017 James Daniel
  * Released under the MIT license
  * github.com/jaames/iro.js
@@ -704,19 +704,20 @@ var CLASS_PREFIX = "iro__marker";
 /**
  * @constructor marker UI
  * @param {svgRoot} svg - svgRoot object
- * @param {Object} opts - options
+ * @param {Object} params - options
 */
-var marker = function marker(svg, opts) {
+var marker = function marker(svg, params) {
+  var radius = params.markerRadius;
   var baseGroup = svg.g({
     class: CLASS_PREFIX
   });
-  baseGroup.circle(0, 0, opts.r, {
+  baseGroup.circle(0, 0, radius, {
     class: CLASS_PREFIX + "__outer",
     fill: "none",
     strokeWidth: 5,
     stroke: "#000"
   });
-  baseGroup.circle(0, 0, opts.r, {
+  baseGroup.circle(0, 0, radius, {
     class: CLASS_PREFIX + "__inner",
     fill: "none",
     strokeWidth: 2,
@@ -823,20 +824,20 @@ function whenReady(callback) {
 /**
   * @constructor color wheel object
   * @param {Element | String} el - a DOM element or the CSS selector for a DOM element to use as a container for the UI
-  * @param {Object} opts - options for this instance
+  * @param {Object} params - options for this instance
 */
-var colorPicker = function colorPicker(el, opts) {
+var colorPicker = function colorPicker(el, params) {
   var _this2 = this;
 
-  opts = opts || {};
+  params = params || {};
   // event storage for `on` and `off`
   this._events = {};
   this._mouseTarget = false;
   this._colorChangeActive = false;
-  this.css = opts.css || opts.styles || undefined;
+  this._params = params;
   // Wait for the document to be ready, then init the UI
   whenReady(function () {
-    _this2._init(el, opts);
+    _this2._init(el, params);
   });
 };
 
@@ -846,69 +847,56 @@ colorPicker.prototype = {
   /**
     * @desc init the color picker UI
     * @param {Element | String} el - a DOM element or the CSS selector for a DOM element to use as a container for the UI
-    * @param {Object} opts - options for this instance
+    * @param {Object} params - options for this instance
     * @access protected
   */
-  _init: function _init(el, opts) {
+  _init: function _init(el, params) {
     var _this3 = this;
 
     // If `el` is a string, use it to select an Element, else assume it's an element
     el = "string" == typeof el ? document.querySelector(el) : el;
-    // Find the width and height for the UI
-    // If not defined in the options, try the HTML width + height attributes of the wrapper, else default to 320
-    var width = opts.width || parseInt(el.width) || 320;
-    var height = opts.height || parseInt(el.height) || 320;
-    // Calculate layout variables
-    var padding = opts.padding + 2 || 6,
-        borderWidth = opts.borderWidth || 0,
-        markerRadius = opts.markerRadius || 8,
-        sliderMargin = opts.sliderMargin || 24,
-        sliderHeight = opts.sliderHeight || markerRadius * 2 + padding * 2 + borderWidth * 2,
-        bodyWidth = Math.min(height - sliderHeight - sliderMargin, width),
-        wheelRadius = bodyWidth / 2 - borderWidth,
-        leftMargin = (width - bodyWidth) / 2;
-    var marker = {
-      r: markerRadius
+
+    var defaults = {
+      width: parseInt(el.width) || 320,
+      height: parseInt(el.height) || 320,
+      color: "#fff",
+      padding: 6,
+      borderWidth: 0,
+      borderColor: "#fff",
+      markerRadius: 8,
+      sliderMargin: 24,
+      wheelLightness: true,
+      anticlockwise: false,
+      css: false
     };
-    var borderStyles = {
-      w: borderWidth,
-      color: opts.borderColor || "#fff"
-    };
+    // merge provided params with defaults
+    for (var prop in defaultParams) {
+      params[prop] = params.hasOwnProperty(prop) ? params[prop] : defaultParams[prop];
+    }
+
+    var width = params.width;
+    var height = params.height;
+    params.sliderHeight = params.sliderHeight || params.markerRadius * 2 + params.padding * 2 + params.borderWidth * 2;
+    params._contentWidth = Math.min(height - params.sliderHeight - params.sliderMargin, width);
+    params._wheelHeight = params._contentWidth;
 
     // Create UI elements
     this.el = el;
     this.svg = new _svg2.default(el, width, height);
-    this.ui = [new _wheel2.default(this.svg, {
-      cX: leftMargin + bodyWidth / 2,
-      cY: bodyWidth / 2,
-      r: wheelRadius,
-      rMax: wheelRadius - (markerRadius + padding),
-      marker: marker,
-      border: borderStyles,
-      lightness: opts.wheelLightness == undefined ? true : opts.wheelLightness,
-      anticlockwise: opts.anticlockwise
-    }), new _slider2.default(this.svg, {
-      sliderType: "v",
-      x: leftMargin + borderWidth,
-      y: bodyWidth + sliderMargin,
-      w: bodyWidth - borderWidth * 2,
-      h: sliderHeight - borderWidth * 2,
-      r: sliderHeight / 2 - borderWidth,
-      marker: marker,
-      border: borderStyles
-    })];
+    this.ui = [new _slider2.default(this.svg, "value", params), new _wheel2.default(this.svg, params)];
     // Create an iroStyleSheet for this colorWheel's CSS overrides
+    this._css = params.css;
     this.stylesheet = new _stylesheet2.default();
     // Create an iroColor to store this colorWheel's selected color
     this.color = new _color2.default();
     // Whenever the selected color changes, trigger a colorWheel update too
     this.color._onChange = this._update.bind(this);
-    this.color.set(opts.color || opts.defaultValue || "#fff");
+    this.color.set(params.color);
     // Hacky workaround for a couple of Safari SVG url bugs
     // See https://github.com/jaames/iro.js/issues/18
     // TODO: perhaps make this a seperate plugin, it's hacky and takes up more space than I'm happy with
-    this.on("history:stateChange", function (base) {
-      _this3.svg.updateUrls(base);
+    this.on("history:stateChange", function () {
+      _this3.svg.updateUrls();
     });
     // Listen to events
     listen(this.svg.el, [EVENT_MOUSEDOWN, EVENT_TOUCHSTART], this);
@@ -922,17 +910,19 @@ colorPicker.prototype = {
     * @access protected
   */
   _update: function _update(color, changes) {
-    var rgb = color.rgbString;
-    var css = this.css;
     // Loop through each UI element and update it
     for (var i = 0; i < this.ui.length; i++) {
       this.ui[i].update(color, changes);
     }
-    // Update the stylesheet too
-    for (var selector in css) {
-      var properties = css[selector];
-      for (var prop in properties) {
-        this.stylesheet.setRule(selector, prop, rgb);
+    if (this._css) {
+      var rgb = color.rgbString;
+      var css = this._css;
+      // Update the stylesheet too
+      for (var selector in css) {
+        var properties = css[selector];
+        for (var prop in properties) {
+          this.stylesheet.setRule(selector, prop, rgb);
+        }
       }
     }
     // Prevent infinite loops if the color is set inside a `color:change` callback
@@ -1062,7 +1052,7 @@ module.exports = {
   Color: _color2.default,
   ColorPicker: _colorPicker2.default,
   Stylesheet: _stylesheet2.default,
-  version: "3.2.0"
+  version: "3.3.0"
 };
 
 /***/ }),
@@ -1088,54 +1078,51 @@ var CLASS_PREFIX = "iro__slider";
 /**
   * @constructor slider UI
   * @param {svgRoot} svg - svgRoot object
-  * @param {Object} opts - options
+  * @param {Object} params - options
 */
-var slider = function slider(svg, opts) {
-  var r = opts.r,
-      w = opts.w,
-      h = opts.h,
-      x = opts.x,
-      y = opts.y,
-      borderWidth = opts.border.w;
-
-  // "range" limits how far the slider's marker can travel, and where it stops and starts along the X axis
-  opts.range = {
-    min: x + r,
-    max: x + w - r,
-    w: w - r * 2
-  };
-
-  opts.sliderType = opts.sliderType || "v";
-
-  this.type = "slider";
-  this._opts = opts;
-
-  var radius = r + borderWidth / 2;
+var slider = function slider(svg, sliderType, params) {
+  var width = params._contentWidth;
+  var height = params.sliderHeight;
+  var borderWidth = params.borderWidth;
+  var radius = height / 2 - borderWidth / 2;
+  var marginLeftRight = (params.width - width) / 2;
+  var marginTop = params._wheelHeight + params.sliderMargin;
+  var cap = height / 2;
 
   var baseGroup = svg.g({
     class: CLASS_PREFIX
   });
 
-  var rect = baseGroup.insert("rect", {
-    class: CLASS_PREFIX + "__value",
-    rx: radius,
-    ry: radius,
-    x: x - borderWidth / 2,
-    y: y - borderWidth / 2,
-    width: w + borderWidth,
-    height: h + borderWidth,
-    strokeWidth: borderWidth,
-    stroke: opts.border.color
-  });
+  baseGroup.setTransform("translate", [marginLeftRight, marginTop]);
 
-  rect.setGradient("fill", svg.gradient("linear", {
+  this._gradient = svg.gradient("linear", {
     0: { color: "#000" },
     100: { color: "#fff" }
-  }));
+  });
 
-  this._gradient = rect.gradient;
+  var rect = baseGroup.insert("rect", {
+    class: CLASS_PREFIX + "__value",
+    fill: this._gradient.url,
+    dataurl: "fill:" + this._gradient.id,
+    rx: radius,
+    ry: radius,
+    x: borderWidth / 2,
+    y: borderWidth / 2,
+    width: width - borderWidth,
+    height: height - borderWidth,
+    strokeWidth: borderWidth,
+    stroke: params.borderColor
+  });
 
-  this.marker = new _marker2.default(baseGroup, opts.marker);
+  this._sliderType = sliderType;
+  this._width = width;
+  this._height = height;
+  this._cap = cap;
+  this._trackRange = width - cap * 2;
+  this._x = marginLeftRight;
+  this._y = marginTop;
+  this._params = params;
+  this.marker = new _marker2.default(baseGroup, params);
 };
 
 slider.prototype = {
@@ -1147,17 +1134,15 @@ slider.prototype = {
     * @param {Object} changes - an object that gives a boolean for each HSV channel, indicating whether ot not that channel has changed
   */
   update: function update(color, changes) {
-    var opts = this._opts;
-    var range = opts.range;
     var hsv = color.hsv;
-    var hsl = _color2.default.hsv2Hsl({ h: hsv.h, s: hsv.s, v: 100 });
-    if (opts.sliderType == "v") {
+    if (this._sliderType == "value") {
       if (changes.h || changes.s) {
+        var hsl = _color2.default.hsv2Hsl({ h: hsv.h, s: hsv.s, v: 100 });
         this._gradient.stops[1].setAttrs({ stopColor: "hsl(" + hsl.h + "," + hsl.s + "%," + hsl.l + "%)" });
       }
       if (changes.v) {
         var percent = hsv.v / 100;
-        this.marker.move(range.min + percent * range.w, opts.y + opts.h / 2);
+        this.marker.move(this._cap + percent * this._trackRange, this._height / 2);
       }
     }
   },
@@ -1169,11 +1154,11 @@ slider.prototype = {
     * @return {Object} - new HSV color values (some channels may be missing)
   */
   input: function input(x, y) {
-    var opts = this._opts;
-    var range = opts.range;
-    var dist = Math.max(Math.min(x, range.max), range.min) - range.min;
+    var trackStart = this._x + this._cap;
+    var trackEnd = this._x + this._width - this._cap;
+    var dist = Math.max(Math.min(x, trackEnd), trackStart) - trackStart;
     return {
-      v: Math.round(100 / range.w * dist)
+      v: Math.round(100 / this._trackRange * dist)
     };
   },
 
@@ -1184,8 +1169,7 @@ slider.prototype = {
     * @return {Boolean} - true if the point is a "hit", else false
   */
   checkHit: function checkHit(x, y) {
-    var opts = this._opts;
-    return x > opts.x && x < opts.x + opts.w && y > opts.y && y < opts.y + opts.h;
+    return x > this._x && x < this._x + this._width && y > this._y && y < this._y + this._height;
   }
 
 };
@@ -1202,6 +1186,8 @@ module.exports = slider;
 var GRADIENT_INDEX = 0;
 var GRADIENT_SUFFIX = "Gradient";
 var SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+var XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
+var SVG_DOM_REFERENCE = "__irosvg__";
 var SVG_ATTRIBUTE_SHORTHANDS = {
   class: "class",
   stroke: "stroke",
@@ -1210,18 +1196,17 @@ var SVG_ATTRIBUTE_SHORTHANDS = {
   opacity: "opacity",
   offset: "offset",
   stopColor: "stop-color",
-  stopOpacity: "stop-opacity"
+  stopOpacity: "stop-opacity",
+  dataurl: "data-url"
 };
-// TODO: figure out why these aren't being compressed properly?
-var SVG_TRANSFORM_SHORTHANDS = {
-  translate: "setTranslate",
-  scale: "setScale",
-  rotate: "setRotate"
+// sniff useragent string to check if the user is running Safari
+var IS_SAFARI = /^((?!chrome|android).)*safari/i.test(window.navigator.userAgent);
+
+function getUrl(id) {
+  var root = IS_SAFARI ? window.location.href : "";
+  return "url(" + root + id + ")";
 };
-// sniff useragent string to check if the user is running IE, Edge or Safari
-var ua = window.navigator.userAgent.toLowerCase();
-var IS_IE = /msie|trident|edge/.test(ua);
-var IS_SAFARI = /^((?!chrome|android).)*safari/i.test(ua);
+
 /**
   * @constructor svg element wrapper
   * @param {svgRoot} root - svgRoot object
@@ -1231,12 +1216,13 @@ var IS_SAFARI = /^((?!chrome|android).)*safari/i.test(ua);
 */
 var svgElement = function svgElement(root, parent, type, attrs) {
   var el = document.createElementNS(SVG_NAMESPACE, type);
+  el[SVG_DOM_REFERENCE] = this;
   this.el = el;
+  this.attr = {};
   this.setAttrs(attrs);
   (parent.el || parent).appendChild(el);
   this._root = root;
-  this._svgTransforms = {};
-  this._transformList = el.transform ? el.transform.baseVal : false;
+  this._transforms = {};
 };
 
 svgElement.prototype = {
@@ -1257,6 +1243,18 @@ svgElement.prototype = {
   */
   g: function g(attrs) {
     return this.insert("g", attrs);
+  },
+
+  /**
+    * @desc shorthand to insert a new group svgElement
+    * @param {String} href - ID reference to another SVG element
+    * @param {Object} attrs - other element attributes
+  */
+  use: function use(href, attrs) {
+    var node = this.insert("use", attrs);
+    node.attr["href"] = href;
+    node.el.setAttributeNS(XLINK_NAMESPACE, "href", href);
+    return node;
   },
 
   /**
@@ -1302,42 +1300,35 @@ svgElement.prototype = {
     * @param {Array} args - transform values
   */
   setTransform: function setTransform(type, args) {
-    if (!IS_IE) {
-      var transform, transformFn;
-      var svgTransforms = this._svgTransforms;
-      if (!svgTransforms[type]) {
-        transform = this._root.el.createSVGTransform();
-        svgTransforms[type] = transform;
-        this._transformList.appendItem(transform);
-      } else {
-        transform = svgTransforms[type];
-      }
-      transformFn = type in SVG_TRANSFORM_SHORTHANDS ? SVG_TRANSFORM_SHORTHANDS[type] : type;
-      transform[transformFn].apply(transform, args);
-    } else {
-      // Microsoft still can't make a web browser that actually works, as such, Edge + IE dont implement SVG transforms properly.
-      // We have to force them instead... geez
-      this.setAttrs({ "transform": type + "(" + args.join(", ") + ")" });
+    var transforms = this._transforms,
+        transformOrder = ["translate", "rotate", "scale"],
+        transformStack = [];
+    transforms[type] = type + "(" + args.join(", ") + ")";
+    for (var i = 0; i < transformOrder.length; i++) {
+      if (transformOrder[i] in transforms) transformStack.push(transforms[transformOrder[i]]);
     }
+    this.setAttr("transform", transformStack.join(" "));
   },
 
   /**
-    * @desc set attributes on this element
+    * @desc set an attribute on this element
+    * @param {String} attr - attribute name or shorthand - eg "class", "color", etc
+    * @param {Array} value - value
+  */
+  setAttr: function setAttr(attr, value) {
+    var name = attr in SVG_ATTRIBUTE_SHORTHANDS ? SVG_ATTRIBUTE_SHORTHANDS[attr] : attr;
+    this.attr[name] = value;
+    this.el.setAttribute(name, value);
+  },
+
+  /**
+    * @desc set multiple attributes on this element
     * @param {Object} attrs - element attributes
   */
   setAttrs: function setAttrs(attrs) {
     for (var attr in attrs) {
-      var name = attr in SVG_ATTRIBUTE_SHORTHANDS ? SVG_ATTRIBUTE_SHORTHANDS[attr] : attr;
-      this.el.setAttribute(name, attrs[attr]);
+      this.setAttr(attr, attrs[attr]);
     }
-  },
-
-  setGradient: function setGradient(attr, gradient) {
-    var attrs = {};
-    attrs[attr] = gradient.getUrl();
-    gradient._refs[attr] = this;
-    this.gradient = gradient;
-    this.setAttrs(attrs);
   }
 };
 
@@ -1348,10 +1339,9 @@ svgElement.prototype = {
   * @param {Object} stops - gradient stops = {color, opacity} keyed by offset value
 */
 var svgGradient = function svgGradient(root, type, stops) {
+  var id = "iro" + GRADIENT_SUFFIX + GRADIENT_INDEX++;
+  var gradient = root._defs.insert(type + GRADIENT_SUFFIX, { id: id });
   var stopElements = [];
-  var gradient = root._defs.insert(type + GRADIENT_SUFFIX, {
-    id: "iro" + GRADIENT_SUFFIX + GRADIENT_INDEX++
-  });
   for (var offset in stops) {
     var stop = stops[offset];
     stopElements.push(gradient.insert("stop", {
@@ -1360,14 +1350,9 @@ var svgGradient = function svgGradient(root, type, stops) {
       stopOpacity: stop.opacity === undefined ? 1 : stop.opacity
     }));
   }
-  this.el = gradient.el;
+  this.id = "#" + id;
+  this.url = getUrl(this.id);
   this.stops = stopElements;
-  this._refs = {};
-};
-
-svgGradient.prototype.getUrl = function (base) {
-  var root = IS_SAFARI ? base || window.location.href : "";
-  return "url(" + root + "#" + this.el.id + ")";
 };
 
 /**
@@ -1377,27 +1362,22 @@ svgGradient.prototype.getUrl = function (base) {
   * @param {Number} height - svg height
 */
 var svgRoot = function svgRoot(parent, width, height) {
-  svgElement.call(this, this, parent, "svg", { width: width, height: height, style: "display:block" });
+  svgElement.call(this, this, parent, "svg", { class: "iro__root", width: width, height: height, style: "display:block" });
   this._defs = this.insert("defs");
-  this._gradients = [];
 };
 
 svgRoot.prototype = Object.create(svgElement.prototype);
 svgRoot.prototype.constructor = svgRoot;
 svgRoot.prototype.gradient = function (type, stops) {
-  var gradient = new svgGradient(this, type, stops);
-  this._gradients.push(gradient);
-  return gradient;
+  return new svgGradient(this, type, stops);
 };
 svgRoot.prototype.updateUrls = function (base) {
   if (IS_SAFARI) {
-    var gradients = this._gradients;
-    for (var i = 0; i < gradients.length; i++) {
-      for (var key in gradients[i]._refs) {
-        var attrs = {};
-        attrs[key] = gradients[i].getUrl(base);
-        gradients[i]._refs[key].setAttrs(attrs);
-      }
+    var urlRefs = this.el.querySelectorAll("[data-url]");
+    for (var i = 0; i < urlRefs.length; i++) {
+      var el = urlRefs[i][SVG_DOM_REFERENCE];
+      var segments = el.attr["data-url"].split(":");
+      el.setAttr(segments[0], getUrl(segments[1]));
     }
   }
 };
@@ -1428,45 +1408,39 @@ var PI = Math.PI,
 /**
   * @constructor hue wheel UI
   * @param {svgRoot} svg - svgRoot object
-  * @param {Object} opts - options
+  * @param {Object} params - options
 */
-var wheel = function wheel(svg, opts) {
-  this._opts = opts;
-  this.type = "wheel";
-
-  var cY = opts.cY,
-      cX = opts.cX,
-      r = opts.r,
-      border = opts.border;
+var wheel = function wheel(svg, params) {
+  var borderWidth = params.borderWidth;
+  var radius = params._contentWidth / 2 - borderWidth;
+  var cx = (params.width - params._contentWidth) / 2 + radius + borderWidth;
+  var cy = radius + borderWidth;
+  var markerLimit = radius - (params.markerRadius + params.padding);
 
   var baseGroup = svg.g({
     class: CLASS_PREFIX
   });
 
-  baseGroup.circle(cX, cY, r + border.w / 2, {
+  baseGroup.circle(cx, cy, radius + borderWidth / 2, {
     class: CLASS_PREFIX + "__border",
     fill: "#fff",
-    stroke: border.color,
-    strokeWidth: border.w
+    stroke: params.borderColor,
+    strokeWidth: borderWidth
   });
 
   var ringGroup = baseGroup.g({
     class: CLASS_PREFIX + "__hue",
-    strokeWidth: r,
+    strokeWidth: radius,
     fill: "none"
   });
 
   for (var hue = 0; hue < 360; hue++) {
-    ringGroup.arc(cX, cY, r / 2, hue, hue + 1.5, {
-      stroke: "hsl(" + (opts.anticlockwise ? 360 - hue : hue) + ",100%,50%)"
+    ringGroup.arc(cx, cy, radius / 2, hue, hue + 1.5, {
+      stroke: "hsl(" + (params.anticlockwise ? 360 - hue : hue) + ",100%,50%)"
     });
   }
 
-  var saturation = baseGroup.circle(cX, cY, r, {
-    class: CLASS_PREFIX + "__saturation"
-  });
-
-  saturation.setGradient("fill", svg.gradient("radial", {
+  var gradient = svg.gradient("radial", {
     0: {
       color: "#fff"
     },
@@ -1474,14 +1448,26 @@ var wheel = function wheel(svg, opts) {
       color: "#fff",
       opacity: 0
     }
-  }));
+  });
 
-  this._lightness = baseGroup.circle(cX, cY, r, {
+  var saturation = baseGroup.circle(cx, cy, radius, {
+    class: CLASS_PREFIX + "__saturation",
+    fill: gradient.url,
+    dataurl: "fill:" + gradient.id
+  });
+
+  this._lightness = baseGroup.circle(cx, cy, radius, {
     class: CLASS_PREFIX + "__lightness",
     opacity: 0
   });
 
-  this.marker = new _marker2.default(baseGroup, opts.marker);
+  this._cx = cx;
+  this._cy = cy;
+  this._radius = radius;
+  this._markerLimit = markerLimit;
+  this._params = params;
+  this._anticlockwise = params.anticlockwise;
+  this.marker = new _marker2.default(baseGroup, params);
 };
 
 wheel.prototype = {
@@ -1493,20 +1479,19 @@ wheel.prototype = {
     * @param {Object} changes - an object that gives a boolean for each HSV channel, indicating whether ot not that channel has changed
   */
   update: function update(color, changes) {
-    var opts = this._opts;
     var hsv = color.hsv;
     // If the V channel has changed, redraw the wheel UI with the new value
-    if (changes.v && opts.lightness) {
+    if (changes.v && this._params.wheelLightness) {
       this._lightness.setAttrs({ opacity: (1 - hsv.v / 100).toFixed(2) });
     }
     // If the H or S channel has changed, move the marker to the right position
     if (changes.h || changes.s) {
       // convert the hue value to radians, since we'll use it as an angle
-      var hueAngle = (opts.anticlockwise ? 360 - hsv.h : hsv.h) * (PI / 180);
+      var hueAngle = (this._anticlockwise ? 360 - hsv.h : hsv.h) * (PI / 180);
       // convert the saturation value to a distance between the center of the ring and the edge
-      var dist = hsv.s / 100 * opts.rMax;
+      var dist = hsv.s / 100 * this._markerLimit;
       // Move the marker based on the angle and distance
-      this.marker.move(opts.cX + dist * Math.cos(hueAngle), opts.cY + dist * Math.sin(hueAngle));
+      this.marker.move(this._cx + dist * Math.cos(hueAngle), this._cy + dist * Math.sin(hueAngle));
     }
   },
 
@@ -1517,26 +1502,25 @@ wheel.prototype = {
     * @return {Object} - new HSV color values (some channels may be missing)
   */
   input: function input(x, y) {
-    var opts = this._opts,
-        rangeMax = opts.rMax,
-        _x = opts.cX - x,
-        _y = opts.cY - y;
+    var markerLimit = this._markerLimit,
+        dx = this._cx - x,
+        dy = this._cy - y;
 
-    var angle = Math.atan2(_y, _x),
+    var angle = Math.atan2(dy, dx),
 
     // Calculate the hue by converting the angle to radians
     hue = round(angle * (180 / PI)) + 180,
 
     // Find the point's distance from the center of the wheel
     // This is used to show the saturation level
-    dist = Math.min(sqrt(_x * _x + _y * _y), rangeMax);
+    dist = Math.min(sqrt(dx * dx + dy * dy), markerLimit);
 
-    hue = opts.anticlockwise ? 360 - hue : hue;
+    hue = this._anticlockwise ? 360 - hue : hue;
 
     // Return just the H and S channels, the wheel element doesn't do anything with the L channel
     return {
       h: hue,
-      s: round(100 / rangeMax * dist)
+      s: round(100 / markerLimit * dist)
     };
   },
 
@@ -1547,13 +1531,11 @@ wheel.prototype = {
     * @return {Boolean} - true if the point is a "hit", else false
   */
   checkHit: function checkHit(x, y) {
-    var opts = this._opts;
-
     // Check if the point is within the hue ring by comparing the point's distance from the centre to the ring's radius
     // If the distance is smaller than the radius, then we have a hit
-    var dx = abs(x - opts.cX),
-        dy = abs(y - opts.cY);
-    return sqrt(dx * dx + dy * dy) < opts.r;
+    var dx = abs(x - this._cx),
+        dy = abs(y - this._cy);
+    return sqrt(dx * dx + dy * dy) < this._radius;
   }
 };
 

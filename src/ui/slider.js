@@ -7,54 +7,51 @@ var CLASS_PREFIX = "iro__slider";
 /**
   * @constructor slider UI
   * @param {svgRoot} svg - svgRoot object
-  * @param {Object} opts - options
+  * @param {Object} params - options
 */
-const slider = function (svg, opts) {
-  var r = opts.r,
-  w = opts.w,
-  h = opts.h,
-  x = opts.x,
-  y = opts.y,
-  borderWidth = opts.border.w;
-
-  // "range" limits how far the slider's marker can travel, and where it stops and starts along the X axis
-  opts.range = {
-    min: x + r,
-    max: (x + w) - r,
-    w: w - (r * 2)
-  };
-
-  opts.sliderType = opts.sliderType || "v";
-
-  this.type = "slider";
-  this._opts = opts;
-
-  var radius = r + borderWidth / 2;
+const slider = function (svg, sliderType, params) {
+  var width = params._contentWidth;
+  var height = params.sliderHeight;
+  var borderWidth = params.borderWidth;
+  var radius = height / 2 - borderWidth / 2;
+  var marginLeftRight = (params.width - width) / 2;
+  var marginTop = params._wheelHeight + params.sliderMargin;
+  var cap = (height / 2);
 
   var baseGroup = svg.g({
     class: CLASS_PREFIX,
   });
 
-  var rect = baseGroup.insert("rect", {
-    class: CLASS_PREFIX + "__value",
-    rx: radius,
-    ry: radius,
-    x: x - borderWidth / 2,
-    y: y - borderWidth / 2,
-    width: w + borderWidth,
-    height: h + borderWidth,
-    strokeWidth: borderWidth,
-    stroke: opts.border.color,
-  });
+  baseGroup.setTransform("translate", [marginLeftRight, marginTop]);
 
-  rect.setGradient("fill", svg.gradient("linear", {
+  this._gradient = svg.gradient("linear", {
     0: {color: "#000"},
     100: {color: "#fff"}
-  }));
+  });
 
-  this._gradient = rect.gradient;
+  var rect = baseGroup.insert("rect", {
+    class: CLASS_PREFIX + "__value",
+    fill: this._gradient.url,
+    dataurl: "fill:" + this._gradient.id,
+    rx: radius,
+    ry: radius,
+    x: borderWidth / 2,
+    y: borderWidth / 2,
+    width: width - borderWidth,
+    height: height - borderWidth,
+    strokeWidth: borderWidth,
+    stroke: params.borderColor
+  });
 
-  this.marker = new marker(baseGroup, opts.marker);
+  this._sliderType = sliderType;
+  this._width = width;
+  this._height = height;
+  this._cap = cap;
+  this._trackRange = width - cap * 2
+  this._x = marginLeftRight;
+  this._y = marginTop;
+  this._params = params;
+  this.marker = new marker(baseGroup, params);
 };
 
 slider.prototype = {
@@ -66,17 +63,15 @@ slider.prototype = {
     * @param {Object} changes - an object that gives a boolean for each HSV channel, indicating whether ot not that channel has changed
   */
   update: function(color, changes) {
-    var opts = this._opts;
-    var range = opts.range;
     var hsv = color.hsv;
-    var hsl = iroColor.hsv2Hsl({h: hsv.h, s: hsv.s, v: 100});
-    if (opts.sliderType == "v") {
+    if (this._sliderType == "value") {
       if (changes.h || changes.s) {
+        var hsl = iroColor.hsv2Hsl({h: hsv.h, s: hsv.s, v: 100});
         this._gradient.stops[1].setAttrs({stopColor: "hsl(" + hsl.h + "," + hsl.s + "%," + hsl.l + "%)"});
       }
       if (changes.v) {
         var percent = (hsv.v / 100);
-        this.marker.move(range.min + (percent * range.w), opts.y + (opts.h / 2));
+        this.marker.move(this._cap + (percent * this._trackRange), this._height / 2);
       }
     }
   },
@@ -88,11 +83,11 @@ slider.prototype = {
     * @return {Object} - new HSV color values (some channels may be missing)
   */
   input: function(x, y) {
-    var opts = this._opts;
-    var range = opts.range;
-    var dist = Math.max(Math.min(x, range.max), range.min) - range.min;
+    var trackStart = this._x + this._cap;
+    var trackEnd = this._x + this._width - this._cap;
+    var dist = Math.max(Math.min(x, trackEnd), trackStart) - trackStart;
     return {
-      v: Math.round((100 / range.w) * dist),
+      v: Math.round((100 / this._trackRange) * dist)
     };
   },
 
@@ -103,8 +98,7 @@ slider.prototype = {
     * @return {Boolean} - true if the point is a "hit", else false
   */
   checkHit: function(x, y) {
-    var opts = this._opts;
-    return (x > opts.x) && (x < opts.x + opts.w) && (y > opts.y) && (y < opts.y + opts.h);
+    return (x > this._x) && (x < this._x + this._width) && (y > this._y) && (y < this._y + this._height);
   }
 
 };

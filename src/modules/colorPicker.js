@@ -59,17 +59,17 @@ function whenReady(callback) {
 /**
   * @constructor color wheel object
   * @param {Element | String} el - a DOM element or the CSS selector for a DOM element to use as a container for the UI
-  * @param {Object} opts - options for this instance
+  * @param {Object} params - options for this instance
 */
-const colorPicker = function(el, opts) {
-  opts = opts || {};
+const colorPicker = function(el, params) {
+  params = params || {};
   // event storage for `on` and `off`
   this._events = {};
   this._mouseTarget = false;
   this._colorChangeActive = false;
-  this.css = opts.css || opts.styles || undefined;
+  this._params = params;
   // Wait for the document to be ready, then init the UI
-  whenReady(() => {this._init(el, opts)});
+  whenReady(() => {this._init(el, params)});
 }
 
 colorPicker.prototype = {
@@ -78,69 +78,56 @@ colorPicker.prototype = {
   /**
     * @desc init the color picker UI
     * @param {Element | String} el - a DOM element or the CSS selector for a DOM element to use as a container for the UI
-    * @param {Object} opts - options for this instance
+    * @param {Object} params - options for this instance
     * @access protected
   */
-  _init: function(el, opts) {
+  _init: function(el, params) {
     // If `el` is a string, use it to select an Element, else assume it's an element
     el = ("string" == typeof el) ? document.querySelector(el) : el;
-    // Find the width and height for the UI
-    // If not defined in the options, try the HTML width + height attributes of the wrapper, else default to 320
-    var width = opts.width || parseInt(el.width) || 320;
-    var height = opts.height || parseInt(el.height) || 320;
-    // Calculate layout variables
-    var padding = opts.padding + 2 || 6,
-        borderWidth = opts.borderWidth || 0,
-        markerRadius = opts.markerRadius || 8,
-        sliderMargin = opts.sliderMargin || 24,
-        sliderHeight = opts.sliderHeight || markerRadius * 2 + padding * 2 + borderWidth * 2,
-        bodyWidth = Math.min(height - sliderHeight - sliderMargin, width),
-        wheelRadius = bodyWidth / 2 - borderWidth,
-        leftMargin = (width - bodyWidth) / 2;
-    var marker = {
-      r: markerRadius
+
+    var defaults = {
+      width: parseInt(el.width) || 320,
+      height: parseInt(el.height) || 320,
+      color: "#fff",
+      padding: 6,
+      borderWidth: 0,
+      borderColor: "#fff",
+      markerRadius: 8,
+      sliderMargin: 24,
+      wheelLightness: true,
+      anticlockwise: false,
+      css: false
     };
-    var borderStyles = {
-      w: borderWidth,
-      color: opts.borderColor || "#fff",
-    };
+    // merge provided params with defaults
+    for (var prop in defaultParams) {
+      params[prop] = params.hasOwnProperty(prop) ? params[prop] : defaultParams[prop];
+    }
+
+    var width = params.width;
+    var height = params.height;
+    params.sliderHeight = params.sliderHeight || (params.markerRadius * 2 + params.padding * 2 + params.borderWidth * 2);
+    params._contentWidth = Math.min(height - params.sliderHeight - params.sliderMargin, width);
+    params._wheelHeight = params._contentWidth;
 
     // Create UI elements
     this.el = el;
     this.svg = new svg(el, width, height);
     this.ui = [
-      new wheel(this.svg, {
-        cX: leftMargin + bodyWidth / 2,
-        cY: bodyWidth / 2,
-        r: wheelRadius,
-        rMax: wheelRadius - (markerRadius + padding),
-        marker: marker,
-        border: borderStyles,
-        lightness: opts.wheelLightness == undefined ? true : opts.wheelLightness,
-        anticlockwise: opts.anticlockwise
-      }),
-      new slider(this.svg, {
-        sliderType: "v",
-        x: leftMargin + borderWidth,
-        y: bodyWidth + sliderMargin,
-        w: bodyWidth - borderWidth * 2,
-        h: sliderHeight - borderWidth * 2,
-        r: sliderHeight / 2 - borderWidth,
-        marker: marker,
-        border: borderStyles
-      })
+      new slider(this.svg, "value", params),
+      new wheel(this.svg, params)
     ];
     // Create an iroStyleSheet for this colorWheel's CSS overrides
+    this._css = params.css;
     this.stylesheet = new iroStyleSheet();
     // Create an iroColor to store this colorWheel's selected color
     this.color = new iroColor();
     // Whenever the selected color changes, trigger a colorWheel update too
     this.color._onChange = this._update.bind(this);
-    this.color.set(opts.color || opts.defaultValue || "#fff")
+    this.color.set(params.color);
     // Hacky workaround for a couple of Safari SVG url bugs
     // See https://github.com/jaames/iro.js/issues/18
     // TODO: perhaps make this a seperate plugin, it's hacky and takes up more space than I'm happy with
-    this.on("history:stateChange", (base) => {this.svg.updateUrls(base)});
+    this.on("history:stateChange", () => {this.svg.updateUrls()});
     // Listen to events
     listen(this.svg.el, [EVENT_MOUSEDOWN, EVENT_TOUCHSTART], this);
   },
@@ -153,19 +140,21 @@ colorPicker.prototype = {
     * @access protected
   */
   _update: function(color, changes) {
-    var rgb = color.rgbString;
-    var css = this.css;
     // Loop through each UI element and update it
     for (var i = 0; i < this.ui.length; i++) {
       this.ui[i].update(color, changes); 
     }
-    // Update the stylesheet too
-    for (var selector in css) {
-      var properties = css[selector];
-      for (var prop in properties) {
-        this.stylesheet.setRule(selector, prop, rgb);
-      }
-    } 
+    if (this._css) {
+      var rgb = color.rgbString;
+      var css = this._css;
+       // Update the stylesheet too
+      for (var selector in css) {
+        var properties = css[selector];
+        for (var prop in properties) {
+          this.stylesheet.setRule(selector, prop, rgb);
+        }
+      } 
+    }
     // Prevent infinite loops if the color is set inside a `color:change` callback
     if (!this._colorChangeActive) {
       // While _colorChangeActive = true, this event cannot be fired

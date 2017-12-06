@@ -60,10 +60,16 @@ svgElement.prototype = {
     return this.insert("g", attrs);
   },
 
+  /**
+    * @desc shorthand to insert a new group svgElement
+    * @param {String} href - ID reference to another SVG element
+    * @param {Object} attrs - other element attributes
+  */
   use: function(href, attrs) {
-    var el = this.insert("use", attrs);
-    el.setAttr("href", href, true);
-    return el;
+    var node = this.insert("use", attrs);
+    node.attr["href"] = href;
+    node.el.setAttributeNS(XLINK_NAMESPACE, "href", href);
+    return node;
   },
 
   /**
@@ -116,20 +122,22 @@ svgElement.prototype = {
     for (var i = 0; i < transformOrder.length; i++) {
       if (transformOrder[i] in transforms) transformStack.push(transforms[transformOrder[i]]);
     }
-    this.setAttrs({"transform": transformStack.join(" ")});
+    this.setAttr("transform", transformStack.join(" "));
   },
 
-  setAttr: function (attr, value, xlink) {
+  /**
+    * @desc set an attribute on this element
+    * @param {String} attr - attribute name or shorthand - eg "class", "color", etc
+    * @param {Array} value - value
+  */
+  setAttr: function (attr, value) {
     var name = (attr in SVG_ATTRIBUTE_SHORTHANDS) ? SVG_ATTRIBUTE_SHORTHANDS[attr] : attr;
     this.attr[name] = value;
-    if (!xlink) {
-      this.el.setAttribute(name, value);
-    } else {
-      this.el.setAttributeNS(XLINK_NAMESPACE, name, value);
-    }
+    this.el.setAttribute(name, value);
   },
+
   /**
-    * @desc set attributes on this element
+    * @desc set multiple attributes on this element
     * @param {Object} attrs - element attributes
   */
   setAttrs: function (attrs) {
@@ -169,7 +177,7 @@ const svgGradient = function(root, type, stops) {
   * @param {Number} height - svg height
 */
 const svgRoot = function(parent, width, height) {
-  svgElement.call(this, this, parent, "svg", {width, height, style: "display:block"});
+  svgElement.call(this, this, parent, "svg", {class: "iro__root", width, height, style: "display:block"});
   this._defs = this.insert("defs");
 };
 

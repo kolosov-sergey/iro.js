@@ -11,60 +11,66 @@ var PI = Math.PI,
 /**
   * @constructor hue wheel UI
   * @param {svgRoot} svg - svgRoot object
-  * @param {Object} opts - options
+  * @param {Object} params - options
 */
-const wheel = function (svg, opts) {
-  this._opts = opts;
-  this.type = "wheel";
-
-  var cY = opts.cY,
-      cX = opts.cX,
-      r = opts.r,
-      border = opts.border;
+const wheel = function (svg, params) {
+  var borderWidth = params.borderWidth;
+  var radius = params._contentWidth / 2 - borderWidth;
+  var cx = ((params.width - params._contentWidth) / 2) + radius + borderWidth;
+  var cy = radius + borderWidth;
+  var markerLimit = radius - (params.markerRadius + params.padding);
 
   var baseGroup = svg.g({
     class: CLASS_PREFIX,
   });
 
-  baseGroup.circle(cX, cY, r + border.w / 2, {
+  baseGroup.circle(cx, cy, radius + borderWidth / 2, {
     class: CLASS_PREFIX + "__border",
     fill: "#fff",
-    stroke: border.color,
-    strokeWidth: border.w,
+    stroke: params.borderColor,
+    strokeWidth: borderWidth
   });
 
   var ringGroup = baseGroup.g({
     class: CLASS_PREFIX + "__hue",
-    strokeWidth: r,
+    strokeWidth: radius,
     fill: "none",
   });
 
   for (var hue = 0; hue < 360; hue++) {
-    ringGroup.arc(cX, cY, r / 2, hue, hue + 1.5, {
-      stroke: "hsl(" + (opts.anticlockwise ? 360 - hue : hue) + ",100%,50%)",
+    ringGroup.arc(cx, cy, radius / 2, hue, hue + 1.5, {
+      stroke: "hsl(" + (params.anticlockwise ? 360 - hue : hue) + ",100%,50%)",
     });
   }
 
-  var saturation = baseGroup.circle(cX, cY, r, {
-    class: CLASS_PREFIX + "__saturation"
-  });
-
-  saturation.setGradient("fill", svg.gradient("radial", {
+  var gradient = svg.gradient("radial", {
     0: {
       color: "#fff"
     },
     100: {
       color:"#fff", 
       opacity: 0
-    },
-  }));
+    }
+  });
 
-  this._lightness = baseGroup.circle(cX, cY, r, {
+  var saturation = baseGroup.circle(cx, cy, radius, {
+    class: CLASS_PREFIX + "__saturation",
+    fill: gradient.url,
+    dataurl: "fill:" + gradient.id,
+  });
+
+  this._lightness = baseGroup.circle(cx, cy, radius, {
     class: CLASS_PREFIX + "__lightness",
     opacity: 0
   });
 
-  this.marker = new marker(baseGroup, opts.marker);
+  this._cx = cx;
+  this._cy = cy;
+  this._radius = radius;
+  this._markerLimit = markerLimit;
+  this._params = params;
+  this._anticlockwise = params.anticlockwise;
+  this.marker = new marker(baseGroup, params);
 };
 
 wheel.prototype = {
@@ -76,20 +82,19 @@ wheel.prototype = {
     * @param {Object} changes - an object that gives a boolean for each HSV channel, indicating whether ot not that channel has changed
   */
   update: function(color, changes) {
-    var opts = this._opts;
     var hsv = color.hsv;
     // If the V channel has changed, redraw the wheel UI with the new value
-    if (changes.v && opts.lightness) {
-      this._lightness.setAttrs({opacity: (1 - hsv.v / 100).toFixed(2) });
+    if (changes.v && this._params.wheelLightness) {
+      this._lightness.setAttrs({opacity: (1 - hsv.v / 100).toFixed(2)});
     }
     // If the H or S channel has changed, move the marker to the right position
     if (changes.h || changes.s) {
       // convert the hue value to radians, since we'll use it as an angle
-      var hueAngle = (opts.anticlockwise ? 360 - hsv.h : hsv.h) * (PI / 180);
+      var hueAngle = (this._anticlockwise ? 360 - hsv.h : hsv.h) * (PI / 180);
       // convert the saturation value to a distance between the center of the ring and the edge
-      var dist = (hsv.s / 100) * opts.rMax;
+      var dist = (hsv.s / 100) * this._markerLimit;
       // Move the marker based on the angle and distance
-      this.marker.move(opts.cX + dist * Math.cos(hueAngle), opts.cY + dist * Math.sin(hueAngle));
+      this.marker.move(this._cx + dist * Math.cos(hueAngle), this._cy + dist * Math.sin(hueAngle));
     }
   },
 
@@ -100,24 +105,23 @@ wheel.prototype = {
     * @return {Object} - new HSV color values (some channels may be missing)
   */
   input: function(x, y) {
-    var opts = this._opts,
-        rangeMax = opts.rMax,
-        _x = opts.cX - x,
-        _y = opts.cY - y;
+    var markerLimit = this._markerLimit,
+        dx = this._cx - x,
+        dy = this._cy - y;
 
-    var angle = Math.atan2(_y, _x),
+    var angle = Math.atan2(dy, dx),
         // Calculate the hue by converting the angle to radians
         hue = round(angle * (180 / PI)) + 180,
         // Find the point's distance from the center of the wheel
         // This is used to show the saturation level
-        dist = Math.min(sqrt(_x * _x + _y * _y), rangeMax);
+        dist = Math.min(sqrt(dx * dx + dy * dy), markerLimit);
     
-    hue = (opts.anticlockwise ? 360 - hue : hue);
+    hue = (this._anticlockwise ? 360 - hue : hue);
 
     // Return just the H and S channels, the wheel element doesn't do anything with the L channel
     return {
       h: hue,
-      s: round((100 / rangeMax) * dist)
+      s: round((100 / markerLimit) * dist)
     };
   },
 
@@ -128,13 +132,11 @@ wheel.prototype = {
     * @return {Boolean} - true if the point is a "hit", else false
   */
   checkHit: function(x, y) {
-    var opts = this._opts;
-
     // Check if the point is within the hue ring by comparing the point's distance from the centre to the ring's radius
     // If the distance is smaller than the radius, then we have a hit
-    var dx = abs(x - opts.cX),
-        dy = abs(y - opts.cY);
-    return sqrt(dx * dx + dy * dy) < opts.r;
+    var dx = abs(x - this._cx),
+        dy = abs(y - this._cy);
+    return sqrt(dx * dx + dy * dy) < this._radius;
   }
 };
 

@@ -4,19 +4,20 @@ var CLASS_PREFIX = "iro__marker";
  /**
   * @constructor marker UI
   * @param {svgRoot} svg - svgRoot object
-  * @param {Object} opts - options
+  * @param {Object} params - options
 */
-const marker = function (svg, opts) {
+const marker = function (svg, params) {
+  var radius = params.markerRadius;
   var baseGroup = svg.g({
     class: CLASS_PREFIX
   });
-  baseGroup.circle(0, 0, opts.r, {
+  baseGroup.circle(0, 0, radius, {
     class: CLASS_PREFIX + "__outer",
     fill: "none",
     strokeWidth: 5,
     stroke: "#000",
   });
-  baseGroup.circle(0, 0, opts.r, {
+  baseGroup.circle(0, 0, radius, {
     class: CLASS_PREFIX + "__inner",
     fill: "none",
     strokeWidth: 2,
